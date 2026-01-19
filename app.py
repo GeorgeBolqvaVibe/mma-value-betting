@@ -23,7 +23,7 @@ def get_data():
     
     # დარწმუნდი, რომ Google Sheet-ს ზუსტად ეს სახელი ჰქვია!
     # თუ შენ სხვანაირად დაარქვი, აქ შეცვალე ("UFC_Betting_App_DB" -> "შენი_სახელი")
-    sheet = client.open("UFC_Betting_App_DB").sheet1
+    sheet = client.open("MMA_Betting_App_DB").sheet1
     data = sheet.get_all_records()
     return sheet, data
 
