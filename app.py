@@ -46,7 +46,7 @@ def main():
         with st.form("bet_form"):
             event = st.text_input("Event (e.g., UFC 324)")
             fight = st.text_input("Fight (e.g., Topuria vs Volkanovski)")
-            fighter = st.text_input("Fighter (Your Pick)")
+            bet_pick = st.text_input("Bet Selection (e.g. Fighter Name, Over 2.5, KO)")
             bookie = st.selectbox("Bookie", ["Adjarabet", "Bet365", "Crystalbet", "Pinnacle", "Leaderbet"])
             odds = st.number_input("Odds (Decimal)", min_value=1.01, step=0.01)
             my_prob = st.slider("My Probability %", 0, 100, 50)
