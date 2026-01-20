@@ -1,268 +1,170 @@
+
 import streamlit as st
 import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
-import uuid
-import requests  # ეს გვჭირდება API-სთვის
 
 # --- Page Config ---
-st.set_page_config(page_title="MMA Value Betting Lab Pro", page_icon="🥊", layout="wide")
+st.set_page_config(page_title="MMA Value Betting Lab", page_icon="🥊", layout="wide")
 
-# --- Classes ---
-class Bet:
-    def __init__(self, event, fight, fighter, bookie, odds, implied_prob, my_prob, ev, bet_amount, result, profit_loss, brier_score, date):
-        self.id = str(uuid.uuid4())
-        self.event = event
-        self.fight = fight
-        self.fighter = fighter
-        self.bookie = bookie
-        self.odds = odds
-        self.implied_prob = implied_prob
-        self.my_prob = my_prob
-        self.ev = ev
-        self.bet_amount = bet_amount
-        self.result = result
-        self.profit_loss = profit_loss
-        self.brier_score = brier_score
-        self.date = date
-
-class BettingTracker:
-    def __init__(self):
-        if 'bets' not in st.session_state:
-            st.session_state.bets = []
-
-    def add_bet(self, bet):
-        st.session_state.bets.append(bet)
-
-    def get_dataframe(self):
-        if not st.session_state.bets:
-            return pd.DataFrame(columns=['Event', 'Fight', 'Fighter', 'Bookie', 'Odds', 'Implied_Prob', 'My_Prob', 'EV', 'Bet_Amount', 'Result', 'Profit_Loss', 'Brier_Score', 'Date'])
+# --- Authentication & Connection ---
+def get_data():
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    
+    if "gcp_service_account" not in st.secrets:
+        st.error("Secrets not found!")
+        st.stop()
         
-        data = []
-        for bet in st.session_state.bets:
-            data.append({
-                'Event': bet.event,
-                'Fight': bet.fight,
-                'Fighter': bet.fighter,
-                'Bookie': bet.bookie,
-                'Odds': bet.odds,
-                'Implied_Prob': bet.implied_prob,
-                'My_Prob': bet.my_prob,
-                'EV': bet.ev,
-                'Bet_Amount': bet.bet_amount,
-                'Result': bet.result,
-                'Profit_Loss': bet.profit_loss,
-                'Brier_Score': bet.brier_score,
-                'Date': bet.date
-            })
-        return pd.DataFrame(data)
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+    
+    # სახელი: დარწმუნდი რომ ემთხვევა შენს Google Sheet-ს
+    sheet = client.open("MMA_Betting_App_DB").sheet1 
+    data = sheet.get_all_records()
+    return sheet, data
 
-# --- API Helper Functions ---
-def fetch_ufc_odds(api_key):
-    """The Odds API-დან მოაქვს UFC-ის მონაცემები"""
-    # ვიყენებთ MMA (Mixed Martial Arts) endpoint-ს
-    sport_key = 'mma_mixed_martial_arts' 
-    regions = 'eu' # ვიყენებთ ევროპულ ბუკმეიკერებს (Pinnacle შედის აქ)
-    markets = 'h2h' # Head to head (მოგებაზე)
-    odds_format = 'decimal'
-    
-    url = f'https://api.the-odds-api.com/v4/sports/{sport_key}/odds/?apiKey={api_key}&regions={regions}&markets={markets}&oddsFormat={odds_format}'
-    
+# --- Main App ---
+def main():
+    st.title("🥊 MMA Value Betting Lab 2.0")
+    st.markdown("### *Professional Betting Tracker & Analytics*")
+
     try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"Error fetching data: {response.status_code}")
-            return []
+        sheet, data = get_data()
+        df = pd.DataFrame(data)
     except Exception as e:
-        st.error(f"API Connection Error: {e}")
-        return []
+        st.error(f"Error: {e}")
+        st.stop()
 
-def process_api_data(data):
-    """ამუშავებს JSON მონაცემებს მარტივ სტრუქტურაში"""
-    fights_list = []
-    
-    for event in data:
-        # მხოლოდ UFC-ის ივენთები (ზოგჯერ სხვა ლიგებიც ერევა ხოლმე)
-        # The Odds API-ში ხანდახან 'UFC' პირდაპირ წერია სათაურში
-        event_name = event.get('commence_time', '').split('T')[0] + " | " + event.get('home_team') + " vs " + event.get('away_team')
-        
-        # ვიპოვოთ საუკეთესო კოეფიციენტები (მაგალითად Pinnacle ან Unibet)
-        home_odd = 0
-        away_odd = 0
-        bookie_name = "N/A"
-        
-        # ვეძებთ პირველ ხელმისაწვდომ ბუკმეიკერს კოეფიციენტებისთვის
-        if event.get('bookmakers'):
-            # ვცდილობთ ვიპოვოთ Pinnacle ან Unibet, თუ არა და ვიღებთ პირველს
-            bookie = event['bookmakers'][0] 
-            for b in event['bookmakers']:
-                if b['key'] == 'pinnacle': # Pinnacle is the sharpest
-                    bookie = b
-                    break
+    # --- Sidebar: Add New Bet ---
+    with st.sidebar:
+        st.header("➕ Add New Bet")
+        with st.form("bet_form"):
+            event = st.text_input("Event (e.g., UFC 324)")
+            fight = st.text_input("Fight (e.g., Topuria vs Volkanovski)")
+            # შეცვლილი: Fighter-ის ნაცვლად Bet Selection
+            selection = st.text_input("Bet Selection (Fighter, Over/Under, Prop)")
+            bookie = st.selectbox("Bookie", ["Adjarabet", "Bet365", "Crystalbet", "Pinnacle", "Leaderbet", "Other"])
+            odds = st.number_input("Odds (Decimal)", min_value=1.01, step=0.01, value=2.00)
+            my_prob = st.slider("My Probability %", 0, 100, 50)
+            bet_amount = st.number_input("Bet Amount (GEL)", min_value=1.0, step=1.0, value=10.0)
+            notes = st.text_area("Notes (Strategy)")
             
-            bookie_name = bookie['title']
-            outcomes = bookie['markets'][0]['outcomes']
+            submitted = st.form_submit_button("Add Bet 🚀")
             
-            for outcome in outcomes:
-                if outcome['name'] == event['home_team']:
-                    home_odd = outcome['price']
-                elif outcome['name'] == event['away_team']:
-                    away_odd = outcome['price']
-        
-        fights_list.append({
-            "display_name": event_name,
-            "home_fighter": event.get('home_team'),
-            "away_fighter": event.get('away_team'),
-            "home_odd": home_odd,
-            "away_odd": away_odd,
-            "bookie": bookie_name,
-            "raw_data": event
-        })
-    
-    return fights_list
-
-# --- Main App Logic ---
-tracker = BettingTracker()
-
-st.sidebar.title("⚙️ Settings")
-api_key = st.sidebar.text_input("🔑 Enter API Key (The Odds API)", type="password")
-fetch_btn = st.sidebar.button("🔄 Load UFC Data")
-
-if 'api_data' not in st.session_state:
-    st.session_state.api_data = []
-
-if fetch_btn and api_key:
-    with st.spinner("Fetching latest UFC odds..."):
-        raw_data = fetch_ufc_odds(api_key)
-        st.session_state.api_data = process_api_data(raw_data)
-        st.sidebar.success(f"Loaded {len(st.session_state.api_data)} fights!")
-
-st.title("🥊 MMA Value Betting Lab 2.0 (SaaS Edition)")
-st.markdown("_Professional Betting Tracker with Live Odds Integration_")
-
-# Tabs
-tab1, tab2 = st.tabs(["📝 Add Bet / Tracker", "📊 Analytics Dashboard"])
-
-with tab1:
-    # Input Mode Selection
-    input_mode = st.radio("Input Mode:", ["⚡ Auto (Live API)", "✍️ Manual Entry"], horizontal=True)
-    
-    with st.form("bet_form"):
-        st.subheader("New Bet Entry")
-        
-        # ცვლადების ინიციალიზაცია
-        event_val = ""
-        fight_val = ""
-        fighter_val = ""
-        bookie_val = "Adjarabet" # Default
-        odds_val = 1.0
-        
-        if input_mode == "⚡ Auto (Live API)" and st.session_state.api_data:
-            # Dropdown ივენთებისთვის
-            fight_options = [f['display_name'] for f in st.session_state.api_data]
-            selected_fight_display = st.selectbox("Select Fight", options=fight_options)
-            
-            # არჩეული ბრძოლის მონაცემების პოვნა
-            selected_fight_data = next((item for item in st.session_state.api_data if item["display_name"] == selected_fight_display), None)
-            
-            if selected_fight_data:
-                event_val = "UFC / MMA" # API-დან ზუსტი ივენთის სახელი რთულია, იყოს ზოგადი ან თარიღი
-                fight_val = f"{selected_fight_data['home_fighter']} vs {selected_fight_data['away_fighter']}"
-                
-                # მებრძოლის არჩევა
-                fighter_selection = st.radio("Select Fighter", [selected_fight_data['home_fighter'], selected_fight_data['away_fighter']], horizontal=True)
-                fighter_val = fighter_selection
-                
-                # კოეფიციენტის ავტომატური შევსება
-                if fighter_selection == selected_fight_data['home_fighter']:
-                    odds_val = selected_fight_data['home_odd']
+            if submitted:
+                if not event or not fight or not selection:
+                    st.warning("Please fill all fields!")
                 else:
-                    odds_val = selected_fight_data['away_odd']
-                
-                st.info(f"💡 Best Odds found on **{selected_fight_data['bookie']}**: {odds_val}")
-                bookie_val = st.text_input("Bookie", value=selected_fight_data['bookie']) # უფლება მივცეთ შეცვალოს
-                
-        else:
-            # Manual Mode
-            c1, c2 = st.columns(2)
-            event_val = c1.text_input("Event (e.g., UFC 300)")
-            fight_val = c2.text_input("Fight (e.g., Gaethje vs Holloway)")
-            fighter_val = c1.text_input("Fighter Selection")
-            bookie_val = c2.selectbox("Bookie", ["Adjarabet", "Crystalbet", "Betlive", "Pinnacle", "Other"])
+                    implied_prob = round((1 / odds) * 100, 2)
+                    ev = round(((my_prob / 100 * odds) - 1) * 100, 2)
+                    date_added = datetime.now().strftime("%Y-%m-%d")
+                    
+                    # ახალი ხაზი (14 სვეტი)
+                    new_row = [event, fight, selection, bookie, odds, implied_prob, my_prob, ev, bet_amount, "", "", "", date_added, notes]
+                    sheet.append_row(new_row)
+                    st.success(f"Bet added! Value Edge: {ev}%")
+                    st.rerun()
 
-        # Common Inputs
-        c3, c4, c5 = st.columns(3)
-        # თუ API-დანაა, odds_val უკვე შევსებულია
-        odds = c3.number_input("Decimal Odds", min_value=1.0, value=float(odds_val), step=0.01)
-        my_prob = c4.number_input("My Probability (%)", min_value=0.0, max_value=100.0, value=50.0)
-        stake = c5.number_input("Stake Amount (GEL)", min_value=1.0, value=10.0)
-
-        # Calculations (Real-time update logic isn't perfect in forms, but works on submit)
-        implied = round((1/odds) * 100, 2) if odds > 0 else 0
-        ev = round(((my_prob/100) * (odds - 1)) - ((1 - (my_prob/100)) * 1), 2) * 100
-        
-        st.caption(f"Implied Probability: {implied}% | **Expected Value (EV): {ev}%**")
-
-        # Results (Optional at entry)
-        result = st.selectbox("Result (Update later if pending)", ["Pending", "Win", "Loss", "Void"])
-        
-        submitted = st.form_submit_button("Add Bet to Tracker")
-        
-        if submitted:
-            pnl = 0
-            brier = 0
-            if result == "Win":
-                pnl = (stake * odds) - stake
-                brier = ( (my_prob/100) - 1 ) ** 2
-            elif result == "Loss":
-                pnl = -stake
-                brier = ( (my_prob/100) - 0 ) ** 2
-                
-            new_bet = Bet(event_val, fight_val, fighter_val, bookie_val, odds, implied, my_prob, ev, stake, result, pnl, brier, datetime.now())
-            tracker.add_bet(new_bet)
-            st.success(f"Bet Added! {fighter_val} @ {odds}")
-
-    # Display Data
-    st.divider()
-    df = tracker.get_dataframe()
+    # --- Auto-Calculate Results Logic ---
+    # ეს ამოწმებს, თუ Result წერია (1 ან 0), მაგრამ P&L ცარიელია, დაითვლის ავტომატურად
     if not df.empty:
-        st.dataframe(df.sort_values(by='Date', ascending=False), use_container_width=True)
+        updates_needed = []
+        for i, row in df.iterrows():
+            res = str(row.get('Result', '')).strip()
+            pl = str(row.get('Profit_Loss', '')).strip()
+            
+            if res in ['1', '0', '1.0', '0.0'] and pl == "":
+                # გამოთვლა
+                odds_val = float(row['Odds'])
+                bet_val = float(row['Bet_Amount'])
+                my_prob_val = float(row['My_Prob']) / 100
+                result_val = float(res)
+                
+                # Profit/Loss
+                if result_val == 1:
+                    new_pl = round(bet_val * (odds_val - 1), 2)
+                else:
+                    new_pl = round(-bet_val, 2)
+                
+                # Brier Score: (Prob - Outcome)^2
+                brier = round((my_prob_val - result_val) ** 2, 4)
+                
+                # Google Sheet-ის განახლება (Row + 2 იმიტომ რომ DataFrame 0-დან იწყება, Sheet კი 1-დან + Header)
+                # სვეტი K (11) არის P&L, L (12) არის Brier
+                sheet.update_cell(i + 2, 11, new_pl) 
+                sheet.update_cell(i + 2, 12, brier)
+                updates_needed.append(True)
         
-        # Edit/Delete logic could be added here
-    else:
-        st.info("No bets tracked yet. Add one above!")
+        if any(updates_needed):
+            st.toast("Results auto-calculated & synced! 🔄")
+            st.rerun()
 
-with tab2:
-    st.subheader("Performance Analytics")
-    df = tracker.get_dataframe()
-    
+    # --- Dashboard ---
     if not df.empty:
-        # KPI Cards
+        # Data Cleaning for Metrics
+        df['Profit_Loss'] = pd.to_numeric(df['Profit_Loss'], errors='coerce').fillna(0)
+        df['Bet_Amount'] = pd.to_numeric(df['Bet_Amount'], errors='coerce').fillna(0)
+        df['Brier_Score'] = pd.to_numeric(df['Brier_Score'], errors='coerce') # Brier შეიძლება იყოს NaN
+        
+        # Metrics
         total_bets = len(df)
-        total_pnl = df['Profit_Loss'].sum()
-        roi = (total_pnl / df['Bet_Amount'].sum()) * 100 if df['Bet_Amount'].sum() > 0 else 0
-        win_rate = (len(df[df['Result']=='Win']) / len(df[df['Result'].isin(['Win', 'Loss'])])) * 100 if len(df[df['Result'].isin(['Win', 'Loss'])]) > 0 else 0
+        completed_df = df[df['Result'] != ""]
         
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Total Bets", total_bets)
-        k2.metric("Total P&L", f"{total_pnl:.2f} ₾", delta_color="normal")
-        k3.metric("ROI", f"{roi:.1f}%")
-        k4.metric("Win Rate", f"{win_rate:.1f}%")
+        profit = df['Profit_Loss'].sum()
+        roi = (profit / df['Bet_Amount'].sum() * 100) if df['Bet_Amount'].sum() > 0 else 0
         
-        # Charts
-        st.divider()
+        # Win Rate
+        wins = len(completed_df[completed_df['Result'].astype(str).isin(['1', '1.0'])])
+        finished_count = len(completed_df)
+        win_rate = (wins / finished_count * 100) if finished_count > 0 else 0
         
-        # 1. Cumulative Profit
-        df['Cumulative_PL'] = df['Profit_Loss'].cumsum()
-        fig_pnl = px.line(df.reset_index(), x='index', y='Cumulative_PL', title='Bankroll Growth Over Time', markers=True)
-        st.plotly_chart(fig_pnl, use_container_width=True)
+        # Avg Brier Score (რაც დაბალია, უკეთესია)
+        avg_brier = df['Brier_Score'].mean()
+
+        # Cards
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Total Bets", total_bets)
+        col2.metric("Total P&L", f"{profit:.2f} ₾", delta_color="normal")
+        col3.metric("ROI", f"{roi:.1f}%")
+        col4.metric("Win Rate", f"{win_rate:.1f}%")
+        col5.metric("Accuracy (Brier)", f"{avg_brier:.3f}" if pd.notnull(avg_brier) else "-")
+
+        st.markdown("---")
         
-        # 2. EV vs Actual
-        fig_ev = px.scatter(df, x='EV', y='Profit_Loss', color='Result', size='Bet_Amount', hover_data=['Fighter'], title='EV vs Actual Result')
-        st.plotly_chart(fig_ev, use_container_width=True)
+        # Tabs
+        tab1, tab2 = st.tabs(["📊 Live Data", "📈 Analytics"])
         
+        with tab1:
+            # სვეტების სახელების გალამაზება მხოლოდ ჩვენებისთვის (Sheet-ში იგივე რჩება)
+            display_df = df.rename(columns={
+                'Implied_Prob': 'Market %',
+                'My_Prob': 'My %',
+                'EV': 'Edge %',
+                'Bet_Amount': 'Wager',
+                'Profit_Loss': 'P&L'
+            })
+            st.dataframe(display_df, use_container_width=True)
+        
+        with tab2:
+            if not completed_df.empty:
+                col_a, col_b = st.columns(2)
+                
+                # Bankroll Growth
+                df['Cumulative_PL'] = df['Profit_Loss'].cumsum()
+                fig_line = px.line(df, y='Cumulative_PL', title='💰 Bankroll Growth', markers=True)
+                col_a.plotly_chart(fig_line, use_container_width=True)
+                
+                # Brier Score Distribution
+                fig_hist = px.histogram(df, x='Brier_Score', title='🎯 Forecast Accuracy (Lower is Better)', nbins=10)
+                col_b.plotly_chart(fig_hist, use_container_width=True)
+            else:
+                st.info("No completed bets yet. Add results in Google Sheets (1=Win, 0=Loss) to see charts.")
+
     else:
-        st.warning("Add bets to see analytics.")
+        st.info("👈 Add your first bet to start tracking!")
+
+if __name__ == "__main__":
+    main()
