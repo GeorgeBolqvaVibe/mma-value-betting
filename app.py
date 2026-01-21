@@ -5,16 +5,7 @@ import google.generativeai as genai
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
-# --- დროებითი შემოწმება ---
-try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    st.write("ხელმისაწვდომი მოდელები:")
-    for m in genai.list_models():
-        if 'generateContent' in m.supported_generation_methods:
-            st.code(m.name) # ეს გამოიტანს ზუსტ სახელებს ეკრანზე
-except Exception as e:
-    st.error(f"ვერ ვპოულობ მოდელებს: {e}")
-# ---------------------------
+
 
 # --- Page Config ---
 st.set_page_config(page_title="MMA Lab AI", page_icon="🧠", layout="wide")
@@ -57,7 +48,7 @@ def get_ai_analysis(fight_text, odds_info):
     if not api_key: return "გთხოვთ ჩაწეროთ Gemini API Key Secrets-ში."
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-3.0-pro')
+    model = genai.GenerativeModel('gemini-2.5-pro')
     
     prompt = f"""
     You are an expert UFC betting analyst. Analyze: {fight_text} (Odds: {odds_info}).
