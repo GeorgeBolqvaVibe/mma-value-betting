@@ -4,18 +4,20 @@ import requests
 import google.generativeai as genai
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import plotly.express as px
 from datetime import datetime
 
 # --- Page Config ---
-st.set_page_config(page_title="MMA Value Betting Lab Pro", page_icon="🥊", layout="wide")
+st.set_page_config(page_title="MMA Lab AI", page_icon="🧠", layout="wide")
 
-# --- 🔐 Secrets Management ---
-# დარწმუნდი, რომ Streamlit Secrets-ში გაქვს:
-# 1. [gcp_service_account] - Google Sheets-ისთვის
-# 2. ODDS_API_KEY - The Odds API-ისთვის
-# 3. GEMINI_API_KEY - Google Gemini-ისთვის
+# --- 🔐 Secrets Check ---
+if "gcp_service_account" not in st.secrets:
+    st.error("❌ შეცდომა: Google Sheets-ის გასაღები (Secrets) ვერ ვიპოვე!")
+    st.stop()
 
+if "GEMINI_API_KEY" not in st.secrets:
+    st.warning("⚠️ გაფრთხილება: Gemini API Key არ არის შეყვანილი Secrets-ში. AI ანალიზი არ იმუშავებს.")
+
+# --- Functions ---
 def get_google_sheet():
     """უკავშირდება Google Sheets-ს"""
     try:
@@ -30,42 +32,32 @@ def get_google_sheet():
         return None
 
 def fetch_ufc_events():
-    """მოაქვს UFC ბრძოლები The Odds API-დან"""
+    """The Odds API - UFC ბრძოლები"""
     api_key = st.secrets.get("ODDS_API_KEY")
-    if not api_key:
-        return []
-    
+    if not api_key: return []
     url = f'https://api.the-odds-api.com/v4/sports/mma_mixed_martial_arts/odds/?apiKey={api_key}&regions=eu&markets=h2h&oddsFormat=decimal'
     try:
         response = requests.get(url)
-        if response.status_code == 200:
-            return response.json()
-    except:
-        pass
-    return []
+        return response.json() if response.status_code == 200 else []
+    except: return []
 
 def get_ai_analysis(fight_text, odds_info):
-    """ეკითხება Gemini-ს პროგნოზს"""
+    """Gemini AI ანალიზი"""
     api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key:
-        return "⚠️ Gemini API Key not found!"
+    if not api_key: return "გთხოვთ ჩაწეროთ Gemini API Key Secrets-ში."
     
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
     
     prompt = f"""
-    Act as a professional MMA Analyst using a 10-point scoring system (Age, Wrestling, Chin, Cardio, Activity, Streak, Damage, Finish Rate, Gym, Weight Cut).
-    
-    Analyze this fight: {fight_text}
-    Current Odds info: {odds_info}
-    
-    Provide a concise response in this format:
-    1. **Key Advantage:** (Who has the edge and why, 1 sentence)
-    2. **Risk Factor:** (What could go wrong for the favorite)
-    3. **AI Winning Probability:** (Give a specific percentage, e.g., 65%)
-    4. **Value Verdict:** (Compare your % to the odds. Is it a value bet?)
+    You are an expert UFC betting analyst. Analyze: {fight_text} (Odds: {odds_info}).
+    Focus on: Age, Wrestling, Chin, Cardio.
+    Output:
+    1. **Winner Prediction:** [Name]
+    2. **Probability:** [0-100]%
+    3. **Key Reason:** [1 sentence]
+    4. **Value Bet?** [Yes/No]
     """
-    
     try:
         response = model.generate_content(prompt)
         return response.text
@@ -74,9 +66,8 @@ def get_ai_analysis(fight_text, odds_info):
 
 # --- Main App ---
 def main():
-    st.title("🥊 MMA Value Betting Lab 3.0 (AI Edition)")
-    
-    # მონაცემების წამოღება
+    st.title("🥊 MMA Lab 3.0 - AI ACTIVE") # <--- თუ ეს არ წერია, ძველი ვერსიაა!
+
     sheet = get_google_sheet()
     if sheet:
         data = sheet.get_all_records()
@@ -84,101 +75,58 @@ def main():
     else:
         df = pd.DataFrame()
 
-    # --- Sidebar: New Bet ---
+    # --- Sidebar ---
     with st.sidebar:
-        st.header("⚡ Smart Bet Entry")
+        st.header("🧠 AI ანალიზატორი")
         
-        # 1. API Data Fetch
-        if st.button("🔄 Refresh Live Odds"):
+        # 1. განახლება
+        if st.button("🔄 ბრძოლების განახლება (API)"):
             st.session_state['ufc_data'] = fetch_ufc_events()
+            if not st.session_state['ufc_data']:
+                st.warning("ვერ დავუკავშირდი Odds API-ს (ან ლიმიტი ამოიწურა).")
         
         ufc_data = st.session_state.get('ufc_data', [])
         
-        # 2. Fight Selection
-        fight_options = ["Custom Entry"]
-        if ufc_data:
-            fight_options += [f"{x['home_team']} vs {x['away_team']}" for x in ufc_data]
-        
-        selected_fight = st.selectbox("Select Fight:", fight_options)
-        
-        # ცვლადები ფორმისთვის
-        form_event = ""
-        form_fight = ""
-        form_odds = 2.0
-        odds_info_str = ""
+        # 2. არჩევა
+        fight_list = ["-- აირჩიე სიიდან --"] + [f"{x['home_team']} vs {x['away_team']}" for x in ufc_data]
+        selected_fight = st.selectbox("აირჩიე ბრძოლა:", fight_list)
 
-        if selected_fight != "Custom Entry":
-            # მონაცემების ამოღება არჩეული ბრძოლიდან
+        odds_val = 2.0
+        
+        if selected_fight != "-- აირჩიე სიიდან --":
+            # AI ღილაკი
+            if st.button("✨ ჯემინაი, რას ფიქრობ?"):
+                with st.spinner("AI აანალიზებს..."):
+                    res = get_ai_analysis(selected_fight, "Check live odds")
+                    st.info(res)
+            
+            # კუშის პოვნა (ავტომატური)
             fight_obj = next((x for x in ufc_data if f"{x['home_team']} vs {x['away_team']}" == selected_fight), None)
             if fight_obj:
-                form_event = "UFC / MMA"
-                form_fight = selected_fight
-                # ვეძებთ Pinnacle-ს ან ვიღებთ პირველს
-                try:
-                    bookmakers = fight_obj['bookmakers']
-                    best_bookie = bookmakers[0]
-                    for b in bookmakers:
-                        if b['key'] == 'pinnacle': best_bookie = b
-                    
-                    # ვიღებთ პირველი მებრძოლის კუშს დეფოლტად
-                    form_odds = best_bookie['markets'][0]['outcomes'][0]['price']
-                    odds_info_str = f"Odds: {best_bookie['markets'][0]['outcomes'][0]['price']} vs {best_bookie['markets'][0]['outcomes'][1]['price']}"
-                except:
-                    pass
+                try: odds_val = fight_obj['bookmakers'][0]['markets'][0]['outcomes'][0]['price']
+                except: pass
 
-        # 3. AI Analysis Button
-        if selected_fight != "Custom Entry" and st.button("🧠 Analyze with Gemini AI"):
-            with st.spinner("AI is watching tape..."):
-                analysis = get_ai_analysis(selected_fight, odds_info_str)
-                st.session_state['ai_result'] = analysis
+        st.markdown("---")
+        st.subheader("📝 ბეთის შენახვა")
+        
+        with st.form("save_bet"):
+            f_event = st.text_input("Event", value="UFC Fight Night" if selected_fight == "-- აირჩიე სიიდან --" else "UFC")
+            f_fight = st.text_input("Fight", value="" if selected_fight == "-- აირჩიე სიიდან --" else selected_fight)
+            f_pick = st.text_input("შენი არჩევანი")
+            f_odds = st.number_input("კუში", value=float(odds_val))
+            f_stake = st.number_input("თანხა (GEL)", value=10.0)
+            
+            if st.form_submit_button("შენახვა"):
+                if sheet:
+                    # მარტივი შენახვა
+                    row = [f_event, f_fight, f_pick, "AI-App", f_odds, 0, 0, 0, f_stake, "", "", "", datetime.now().strftime("%Y-%m-%d"), "AI"]
+                    sheet.append_row(row)
+                    st.success("შენახულია!")
+                    st.rerun()
 
-        # AI შედეგის ჩვენება
-        if 'ai_result' in st.session_state:
-            st.info(st.session_state['ai_result'])
-
-        # 4. Final Form to Save
-        with st.form("bet_form"):
-            st.markdown("---")
-            event_in = st.text_input("Event", value=form_event)
-            fight_in = st.text_input("Fight", value=form_fight)
-            selection_in = st.text_input("Your Pick (Fighter)", value=form_fight.split(" vs ")[0] if form_fight else "")
-            
-            c1, c2 = st.columns(2)
-            odds_in = c1.number_input("Odds", value=float(form_odds), step=0.01)
-            stake_in = c2.number_input("Stake (GEL)", value=20.0)
-            
-            my_prob_in = st.slider("My Confidence %", 0, 100, 55)
-            
-            submitted = st.form_submit_button("💾 Save to Sheet")
-            
-            if submitted and sheet:
-                implied = round((1/odds_in)*100, 2)
-                ev = round(((my_prob_in/100 * odds_in) - 1) * 100, 2)
-                date_now = datetime.now().strftime("%Y-%m-%d")
-                
-                # Sheet-ში ჩაწერა (იგივე სტრუქტურა რაც გქონდა)
-                new_row = [event_in, fight_in, selection_in, "API/Smart", odds_in, implied, my_prob_in, ev, stake_in, "", "", "", date_now, "AI Assisted"]
-                sheet.append_row(new_row)
-                st.success("Bet Saved!")
-                st.rerun()
-
-    # --- Dashboard Area ---
+    # --- Dashboard ---
     if not df.empty:
-        # ძველი დაშბორდის კოდი (P&L, Charts) უცვლელად აქ
-        st.subheader("📊 Performance Dashboard")
-        
-        # ტიპების გასწორება
-        df['Profit_Loss'] = pd.to_numeric(df['Profit_Loss'], errors='coerce').fillna(0)
-        df['Bet_Amount'] = pd.to_numeric(df['Bet_Amount'], errors='coerce').fillna(0)
-        
-        col1, col2, col3 = st.columns(3)
-        total_pl = df['Profit_Loss'].sum()
-        roi = (total_pl / df['Bet_Amount'].sum() * 100) if df['Bet_Amount'].sum() > 0 else 0
-        
-        col1.metric("Total P&L", f"{total_pl:.2f} ₾")
-        col2.metric("ROI", f"{roi:.1f}%")
-        col3.metric("Total Bets", len(df))
-        
+        st.write("### 📊 შენი სტატისტიკა")
         st.dataframe(df)
 
 if __name__ == "__main__":
