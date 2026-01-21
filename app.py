@@ -5,6 +5,16 @@ import google.generativeai as genai
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+# --- დროებითი შემოწმება ---
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    st.write("ხელმისაწვდომი მოდელები:")
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            st.code(m.name) # ეს გამოიტანს ზუსტ სახელებს ეკრანზე
+except Exception as e:
+    st.error(f"ვერ ვპოულობ მოდელებს: {e}")
+# ---------------------------
 
 # --- Page Config ---
 st.set_page_config(page_title="MMA Lab AI", page_icon="🧠", layout="wide")
