@@ -48,7 +48,7 @@ def get_ai_analysis(fight_text, odds_info):
     if not api_key: return "გთხოვთ ჩაწეროთ Gemini API Key Secrets-ში."
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     prompt = f"""
     You are an expert UFC betting analyst. Analyze: {fight_text} (Odds: {odds_info}).
