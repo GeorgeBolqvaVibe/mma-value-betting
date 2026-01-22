@@ -56,7 +56,7 @@ def get_ai_analysis(fight_name, fight_data_json):
     genai.configure(api_key=api_key)
     
     # ვიყენებთ 2.0 Flash-ს, რომელიც ძალიან სწრაფია და ჭკვიანი
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     # Prompt-ის ქართული ვერსია, მკაცრი ინსტრუქციებით
     prompt = f"""
